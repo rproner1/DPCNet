@@ -20,8 +20,6 @@ from sklearn.metrics import mean_squared_error
 import tensorflow as tf
 tf.random.set_seed(1) # for reproducible results
 from tensorflow import keras
-from keras.regularizers import L1
-from keras.layers import LSTM, Dense
 import shap # For interpretting models
 
 # System libraries
@@ -37,7 +35,7 @@ FEATIMP_FOLDER = "/lustre06/project/6070422/rproner/InflationForecasting/Feature
 PRED_FOLDER = "/lustre06/project/6070422/rproner/InflationForecasting/Predictions10/"
 
 # Helper functions
-def build_lstm(architecture, dense_architecture, input_shape, recurrent_dropout=0.0, l1=0.0):
+def build_lstm(architecture, dense_architecture, input_shape):
 
     # Init
     model = keras.models.Sequential()
@@ -46,26 +44,24 @@ def build_lstm(architecture, dense_architecture, input_shape, recurrent_dropout=
     model.add(keras.layers.Input(shape=input_shape, name='input'))
     
     for units in architecture[:-1]:
-        model.add(
-            LSTM(units, return_sequences=True, recurrent_dropout=recurrent_dropout,kernel_regularizer=L1(l1=l1))
-        )
+        model.add(keras.layers.LSTM(units, return_sequences=True, recurrent_dropout=0.2))
 
     # Do not return sequences for the last layer
-    model.add(LSTM(architecture[-1], recurrent_dropout=recurrent_dropout,kernel_regularizer=L1(l1=l1)))
+    model.add(keras.layers.LSTM(architecture[-1], recurrent_dropout=0.2))
 
     if dense_architecture != None:
         for units in dense_architecture:
-            model.add(Dense(units, activation='relu', kernel_regularizer=L1(l1=l1)))
+            model.add(keras.layers.Dense(units))
 
     # Output layer
-    model.add(Dense(1, activation='linear'))
+    model.add(keras.layers.Dense(1))
 
     model.compile(loss='mse', optimizer='adam', metrics=['mae'])
     
     return model
 
 
-def build_lstm_ensemble(architecture, dense_architecture, input_shape, recurrent_dropout=0.0, l1=0.0, n_estimators=10):
+def build_lstm_ensemble(architecture, dense_architecture, input_shape, n_estimators=10):
 
 
     models = []
@@ -76,8 +72,22 @@ def build_lstm_ensemble(architecture, dense_architecture, input_shape, recurrent
             keras.callbacks.EarlyStopping(monitor='val_mae',min_delta=10**(-4), patience=50, restore_best_weights=True, verbose=1)
             # keras.callbacks.ReduceLROnPlateau(monitor='val_mae',min_delta=10**(-5), patience=250, restore_best_weights=True, verbose=1)
         ]
+        model = keras.models.Sequential()
+        for units in architecture[:-1]:
+            # Return sequences for all but last lstm layer
+            model.add(keras.layers.LSTM(units, input_shape=input_shape, return_sequences=True, recurrent_dropout=0.2))
+        
+        # Do not return sequences to dense layer
+        model.add(keras.layers.LSTM(architecture[-1], input_shape=input_shape, recurrent_dropout=0.2))
 
-        model = build_lstm(architecture, dense_architecture, input_shape, recurrent_dropout, l1)
+        if dense_architecture != None:
+            for units in dense_architecture:
+                model.add(keras.layers.Dense(units))
+
+        # Output layer
+        model.add(keras.layers.Dense(1))
+
+        model.compile(loss='mse', optimizer='adam', metrics=['mae'])
 
         model.fit(X_train, y_train,
                 validation_data=(X_val, y_val),
@@ -96,7 +106,7 @@ def build_lstm_ensemble(architecture, dense_architecture, input_shape, recurrent
     return ensemble_model
 
 
-def build_multitask_lstm(hardsharing_architecture, taskspecific_architecture, dense_architecture, ntasks, tasknames, input_shape, recurrent_dropout=0.0, l1=0.0):
+def build_multitask_lstm(hardsharing_architecture, taskspecific_architecture, dense_architecture, ntasks, tasknames, input_shape):
 
     """
     Builds a multitask LSTM.
@@ -115,7 +125,7 @@ def build_multitask_lstm(hardsharing_architecture, taskspecific_architecture, de
     inlayer = keras.layers.Input(shape=input_shape, name='input')
 
     # Create hardsharing layers
-    hardsharing_layers = [ LSTM(nodes, return_sequences=True, recurrent_dropout=0.1) for nodes in hardsharing_architecture  ]    
+    hardsharing_layers = [ keras.layers.LSTM(nodes, return_sequences=True, recurrent_dropout=0.1) for nodes in hardsharing_architecture  ]    
 
     hardsharing = keras.models.Sequential(hardsharing_layers)(inlayer)
 
@@ -126,16 +136,16 @@ def build_multitask_lstm(hardsharing_architecture, taskspecific_architecture, de
     for i in range(ntasks):
 
         # Create task-specific layer. Return sequence unless last LSTM layer which feeds dense layer.
-        tasklayers = [ LSTM(nodes, return_sequences=True, recurrent_dropout=recurrent_dropout) for nodes in taskspecific_architecture[:-1]]
-        tasklayers.append(LSTM(taskspecific_architecture[-1], recurrent_dropout=recurrent_dropout))
+        tasklayers = [ keras.layers.LSTM(nodes, return_sequences=True, recurrent_dropout=0.1) for nodes in taskspecific_architecture[:-1]]
+        tasklayers.append(keras.layers.LSTM(taskspecific_architecture[-1], recurrent_dropout=0.1))
         
         # Add dense layers if any
         if dense_architecture != None:
             for nodes in dense_architecture:
-                tasklayers.append(Dense(nodes, activation='relu', kernel_regularizer=L1(l1=l1)))
+                tasklayers.append(keras.layers.Dense(nodes))
         
         # Add output layer
-        tasklayers.append(Dense(1, activation='linear'))
+        tasklayers.append(keras.layers.Dense(1))
 
         # Create task-specific net
         tasknet = keras.models.Sequential(tasklayers, name=tasknames[i])(hardsharing)
