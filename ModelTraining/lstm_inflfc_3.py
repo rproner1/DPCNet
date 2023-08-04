@@ -238,7 +238,6 @@ class GridSearch:
         hp_combinations = ParameterGrid(self.param_grid)
       
         scores = []
-        estimators=[]
         i=0
         for hps in hp_combinations:
             i+=1
@@ -264,9 +263,9 @@ class GridSearch:
                 self.best_params = hps
             
             if self.verbose:
-                print(f'Validation loss: {score}')
+                print(f'Score: {score}')
                 print(f'Best score: {self.best_score}')
-                print(f'Best score so far: {min(scores)}')
+                print(f'Best hyperparameters: {self.best_params}')
             
         
         val_results = {
@@ -449,18 +448,25 @@ for model_name in e_architectures.keys():
     
     print(f'Training model {model_name}...')
     
-    # Set hps
-    model_params = e_architectures[model_name]
-    hp_grid.update(model_params)
-    
-    # perform grid search
-    search = GridSearch(build_lstm, hp_grid, verbose=True, refit=False)
-    search.fit(X_train, y_train, fit_params)
-    
-    # Get best params
-    best_params = search.best_params
-    print(f'Best hyperparameters: {best_params}')
-    
+    # Check for existing models
+    for i in range(1,N_ESTIMATORS+1):
+        model_path = MODELS_DIR + model_name + '/' + model_name + '_' + str(i) + '_' + target + '_' + train_cutoff_year + '.h5'
+        if not os.path.isfile(model_path):
+            # If a single estimator is missing, perform grid search
+            
+            # Set hps
+            model_params = e_architectures[model_name]
+            hp_grid.update(model_params)
+            
+            # perform grid search
+            search = GridSearch(build_lstm, hp_grid, verbose=True, refit=False)
+            search.fit(X_train, y_train, fit_params)
+            
+            # Get best params
+            best_params = search.best_params
+            
+            break
+            
     
     for i in range(1,N_ESTIMATORS+1):
     
@@ -469,7 +475,6 @@ for model_name in e_architectures.keys():
         if not os.path.isfile(model_path):
             print(f'Training estimator {i} of {N_ESTIMATORS}...')
             
-            print(best_params)
             model = build_lstm(**best_params)
             model.fit(X_train, y_train, **fit_params)
     
@@ -517,17 +522,26 @@ for model in mt_architectures.keys():
     estimator_infl_predictions = []
     estimator_unrate_predictions = []
     
-    # Set hyperparameter grid
-    model_params = mt_architectures[model]
-    hp_grid.update(model_params)
-    
-    # Perform grid search
-    search = GridSearch(DPCNet, hp_grid, verbose=True, refit=False)
-    search.fit(X_train, mt_y_train, fit_params)
-    
-    # Get best params
-    best_params = search.best_params
-    
+    # Check for existing models
+    for i in range(1,N_ESTIMATORS+1):
+        model_path = MODELS_DIR + model + '/' + model + '_' + str(i) + '_' + target + '_' + train_cutoff_year + '.h5'
+        if not os.path.isfile(model_path):
+            # If a single estimator is missing, perform grid search
+            
+            # Set hyperparameter grid
+            model_params = mt_architectures[model]
+            hp_grid.update(model_params)
+            
+            # Perform grid search
+            search = GridSearch(DPCNet, hp_grid, verbose=True, refit=False)
+            search.fit(X_train, mt_y_train, fit_params)
+            
+            # Get best params
+            best_params = search.best_params
+            
+            break
+        
+   
     # Fit ensemble with best params
     # mtlstm_estimators = []
     for i in range(1, N_ESTIMATORS+1):
